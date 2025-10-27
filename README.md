@@ -1,7 +1,5 @@
 # Auto Transcribe (Whisper + GitHub Actions)
 
-**Как работает:**
-
 1) Кладите аудио в `audio/` и делайте `git push`.
 2) Job **Auto Transcribe** (Actions) автоматически:
    - ставит FFmpeg и Python-зависимости,
