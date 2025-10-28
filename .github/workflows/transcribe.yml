@@ -1,0 +1,93 @@
+name: Auto Transcribe
+
+on:
+  push:
+    paths:
+      - 'audio/**'
+      - 'scripts/transcribe.py'
+      - '.github/workflows/transcribe.yml'
+      - 'requirements.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  transcribe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system deps (FFmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python deps (Torch CPU + Whisper)
+        run: |
+          python -m pip install --upgrade pip
+          pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
+          pip install --no-cache-dir -r requirements.txt
+
+      - name: Slice audio to 2-min parts (no re-encode)
+        run: |
+          mkdir -p audio_sliced
+          while IFS= read -r -d '' f; do
+            b="$(basename "$f")"
+            name="${b%.*}"
+            ext="${b##*.}"
+            outdir="audio_sliced/$name"
+            mkdir -p "$outdir"
+            ffmpeg -hide_banner -loglevel error -y -i "$f" -f segment -segment_time 120 -c copy "$outdir/${name}_part%03d.$ext"
+          done < <(find audio -type f -print0)
+
+      - name: Transcribe audio_sliced -> transcripts/
+        run: |
+          python scripts/transcribe.py --model medium --lang ru --in audio_sliced --out transcripts
+
+      - name: Env diagnostics
+        if: always()
+        run: |
+          echo "=== PYTHON & PIP ==="
+          python -V || true
+          pip --version || true
+          echo "=== FFMPEG ==="
+          which ffmpeg || true
+          ffmpeg -version || true
+          echo "=== PIP FREEZE ==="
+          pip freeze > pip-freeze.txt || true
+          echo "=== TREE ==="
+          ls -la
+          ls -R > tree.txt || true
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-${{ github.run_id }}
+          path: |
+            pip-freeze.txt
+            tree.txt
+            transcripts
+            audio_sliced
+
+      - name: Commit transcripts
+        run: |
+          if [ -n "$(git status --porcelain transcripts)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add transcripts
+            git commit -m "Auto-transcribe (sliced 2m): $(date -u +'%Y-%m-%d %H:%M:%S')"
+            git push
+          else
+            echo "Нет изменений — коммит не требуется."
+          fi
