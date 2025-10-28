@@ -54,6 +54,13 @@ jobs:
         run: |
           python scripts/transcribe.py --model medium --lang ru --in audio_sliced --out transcripts
 
+      - name: Upload transcripts as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcripts-${{ github.run_id }}
+          path: transcripts
+
       - name: Env diagnostics
         if: always()
         run: |
