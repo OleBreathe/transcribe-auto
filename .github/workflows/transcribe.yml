@@ -38,9 +38,22 @@ jobs:
           pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch==2.4.1
           pip install --no-cache-dir -r requirements.txt
 
-      - name: Transcribe audio -> transcripts/
+      - name: Slice audio to 2-min parts (no re-encode)
         run: |
-          python scripts/transcribe.py --model medium --lang ru --in audio --out transcripts
+          mkdir -p audio_sliced
+          # искать файлы в audio/ рекурсивно и резать на 120-секундные части без перекодирования
+          while IFS= read -r -d '' f; do
+            b="$(basename "$f")"
+            name="${b%.*}"
+            ext="${b##*.}"
+            outdir="audio_sliced/$name"
+            mkdir -p "$outdir"
+            ffmpeg -hide_banner -loglevel error -y -i "$f" -f segment -segment_time 120 -c copy "$outdir/${name}_part%03d.$ext"
+          done < <(find audio -type f -print0)
+
+      - name: Transcribe audio_sliced -> transcripts/
+        run: |
+          python scripts/transcribe.py --model medium --lang ru --in audio_sliced --out transcripts
 
       - name: Commit transcripts
         run: |
@@ -48,7 +61,7 @@ jobs:
             git config user.name  "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add transcripts
-            git commit -m "Auto-transcribe: $(date -u +'%Y-%m-%d %H:%M:%S')"
+            git commit -m "Auto-transcribe (sliced 2m): $(date -u +'%Y-%m-%d %H:%M:%S')"
             git push
           else
             echo "Нет изменений — коммит не требуется."
